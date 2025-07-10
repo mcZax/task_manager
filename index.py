@@ -1,15 +1,23 @@
+
 import pandas as pd
 import smtplib
 import imaplib
 import email
 import os
+import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
+from datetime import datetime, timedelta
 from apscheduler.schedulers.blocking import BlockingScheduler
 from email.header import decode_header
 from email.header import decode_header
 import re
+
+# from datetime import datetime, timedelta
+# from exchangelib import Message, Mailbox
+# from exchangelib.items import SEND_ONLY_TO_ALL
+
+
 
 # Конфигурация
 SMTP_SERVER = "smtp.yandex.ru"
@@ -46,8 +54,8 @@ def send_email(to_email, task, assignee, deadline):
                 Срок выполнения: {deadline}.
 
                 Ответьте на это письмо цифрой:
-                1 — задача выполнена,
-                2 — задача не выполнена."""
+                123 — задача выполнена,
+                321 — задача не выполнена."""
         msg.attach(MIMEText(body, 'plain'))
 
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
@@ -91,94 +99,83 @@ def decode_mime_header(header):
 
 def check_responses():
     try:
-        print("🔍 Проверяем новые ответы...")
+        print("\n Начинаем анализ ответных писем...")
         mail = imaplib.IMAP4_SSL(IMAP_SERVER)
         mail.login(EMAIL, PASSWORD)
         mail.select("inbox")
 
-        # Ищем непрочитанные письма
         status, messages = mail.search(None, "UNSEEN")
         if status != "OK" or not messages[0]:
             print("Нет новых непрочитанных писем")
             return
 
-        print(f"Найдено {len(messages[0].split())} новых писем")
+        message_ids = messages[0].split()
+        print(f"Найдено {len(message_ids)} новых писем")
 
-        for num in messages[0].split():
+        for num in message_ids:
             try:
-                print(f"\nОбрабатываем письмо #{num.decode()}")
+                print(f"\nАнализ письма ID: {num.decode()}")
                 status, data = mail.fetch(num, "(RFC822)")
                 if status != "OK":
-                    print(f"Ошибка получения письма #{num}")
                     continue
 
                 msg = email.message_from_bytes(data[0][1])
-
-                subject = decode_mime_header(msg.get("Subject"))
-                print(f"Декодированная тема: {subject}")  # Для отладки
-            
-                # Проверяем тему через регулярное выражение
-                if not re.search(r"Re:\s*Напоминание:", subject, re.IGNORECASE):
-                    continue
                 
-                # Получаем отправителя
-                from_header = msg.get("From", "")
-                from_email = ""
-                if "<" in from_header and ">" in from_header:
-                    from_email = from_header.split("<")[1].split(">")[0]
-                else:
-                    from_email = from_header
-                print(f"От: {from_email}")
-
-                # Получаем тему
-                from_header = msg.get("From", "")
-                from_email = re.search(r'<(.+?)>', from_header) or re.search(r'(\S+@\S+)', from_header)
-                from_email = from_email.group(1) if from_email else ""
-
-                # Пропускаем если это не ответ на наше письмо
-                if not subject.startswith("Re: Напоминание:"):
-                    print("Пропускаем - не наш ответ")
+                # Проверяем, что это ответ на наше письмо
+                subject = decode_header(msg["Subject"])[0][0]
+                if isinstance(subject, bytes):
+                    subject = subject.decode('utf-8', errors='ignore')
+                
+                if not subject or "Re: Напоминание:" not in subject:
+                    print("Пропускаем: не ответ на напоминание")
                     continue
 
-                # Извлекаем тело письма
+                # Извлекаем email отправителя
+                from_header = msg.get("From", "")
+                from_email = re.search(r'[\w\.-]+@[\w\.-]+', from_header)
+                if not from_email:
+                    print("Не удалось извлечь email отправителя")
+                    continue
+                from_email = from_email.group(0)
+                print(f"Отправитель: {from_email}")
+
+                # Получаем текст письма
                 body = ""
                 if msg.is_multipart():
                     for part in msg.walk():
-                        content_type = part.get_content_type()
-                        content_disposition = str(part.get("Content-Disposition"))
-                        if content_type == "text/plain" and "attachment" not in content_disposition:
-                            body = part.get_payload(decode=True).decode()
+                        if part.get_content_type() == "text/plain":
+                            body = part.get_payload(decode=True).decode('utf-8', errors='ignore')
                             break
                 else:
-                    body = msg.get_payload(decode=True).decode()
+                    body = msg.get_payload(decode=True).decode('utf-8', errors='ignore')
 
-                print(f"Тело письма:\n{body[:200]}...")  # Логируем начало тела
+                # Нормализуем текст для анализа
+                clean_body = re.sub(r'\s+', ' ', body).strip().lower()
+                print(f"Текст письма: {clean_body[:200]}...")
 
-                clean_body = re.sub(r'\s+', '', body)
-                
-                # Ищем точные совпадения цифр
-                if re.search(r'(^|[^0-9])1([^0-9]|$)', clean_body):
-                    print(f"Найдено подтверждение выполнения от {from_email}")
-                    update_status(from_email, "Выполнено")
-                elif re.search(r'(^|[^0-9])2([^0-9]|$)', clean_body):
-                    print(f"Найдено подтверждение НЕ выполнения от {from_email}")
-                    update_status(from_email, "Не выполнено")
+                # Точный поиск статуса
+                status = None
+                if re.search('123', clean_body):
+                    status = "Выполнено"
+                elif re.search('321', clean_body):
+                    status = "Не выполнено"
                 else:
-                    print(f"Не найдено цифр 1 или 2 в письме от {from_email}")
+                    print("Не найдено цифр 123 или 321 в теле письма")
+                    continue
 
-                # Помечаем как прочитанное
+                print(f"Определен статус: {status}")
+                update_status(from_email, status)
                 mail.store(num, "+FLAGS", "\\Seen")
-                print("Письмо обработано и помечено как прочитанное")
+                print("Письмо обработано")
 
             except Exception as e:
-                print(f"⚠️ Ошибка при обработке письма #{num}: {e}")
+                print(f"Ошибка обработки письма: {str(e)}")
                 continue
 
         mail.close()
         mail.logout()
-        print("Проверка ответов завершена")
     except Exception as e:
-        print(f"❌ Критическая ошибка в check_responses: {e}")
+        print(f"Ошибка IMAP: {str(e)}")
 
 
 def update_status(email, status):
@@ -187,19 +184,103 @@ def update_status(email, status):
         # Ищем точное совпадение email (без учета регистра)
         mask = df["Email"].str.lower() == email.lower()
         if not any(mask):
-            print(f"⚠️ Email {email} не найден в tasks.xlsx")
+            print(f" Email {email} не найден в tasks.xlsx")
             return
             
         df.loc[mask, "Статус"] = status
         df.to_excel("tasks.xlsx", index=False)
-        print(f"✅ Обновлен статус для {email}: {status}")
+        print(f" Обновлен статус для {email}: {status}")
     except Exception as e:
-        print(f"❌ Ошибка при обновлении статуса: {e}")
+        print(f" Ошибка при обновлении статуса: {e}")
+
+
+def send_monthly_report():
+    today = datetime.now().date()
+    
+    # Проверяем, что сегодня последний день месяца
+    next_day = today + timedelta(days=1)
+    # if next_day.month == today.month:
+    if today != today:
+        print("Сегодня не последний день месяца. Рассылка не требуется.")
+        return
+    
+    print("⏳ Подготовка месячных отчетов...")
+    
+    # Загружаем данные
+    try:
+        df = load_tasks()
+    except Exception as e:
+        print(f"Ошибка загрузки задач: {e}")
+        return
+    
+    # Группируем задачи по исполнителям
+    grouped = df.groupby(['Email', 'Исполнитель'])
+    
+    # Настройки SMTP
+    smtp_server = "smtp.yandex.ru"  # Для mail.ru (для других сервисов укажите свой)
+    smtp_port = 587
+    smtp_login = "zaharov.egor.2003@yandex.ru"  # Ваш email для отправки
+    smtp_password = "tqyxemaddulynkfc"    # Пароль или app-пароль
+    
+    try:
+        # Подключаемся к SMTP серверу
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_login, smtp_password)
+            
+            for (email, name), tasks in grouped:
+                try:
+                    # Проверяем валидность email
+                    if not re.match(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$', email):
+                        print(f"Пропускаем невалидный email: {email}")
+                        continue
+                    
+                    # Формируем список задач
+                    task_list = []
+                    for _, task in tasks.iterrows():
+                        status = "Выполнено" if task['Статус'] == "Выполнено" else "Не выполнено"
+                        deadline = pd.to_datetime(task['Дедлайн']).strftime('%d.%m.%Y')
+                        task_list.append(f"\t{status} {task['Задача']} (до {deadline})")
+                    
+                    if not task_list:
+                        continue
+                        
+                    # Создаем письмо
+                    msg = MIMEMultipart()
+                    msg['From'] = smtp_login
+                    msg['To'] = email
+                    msg['Subject'] = f"Ваши задачи на {today.strftime('%B %Y')}"
+                    
+                    # Текстовая версия
+                    text = f"""Уважаемый(ая) {name},
+                    
+                            Ваши задачи на текущий месяц:
+                    
+                            """ + "\n".join(task_list) + """
+
+                            С уважением,
+                            Система учета задач
+                            """
+                    msg.attach(MIMEText(text, 'plain'))
+                    
+                    # Отправляем письмо
+                    server.send_message(msg)
+                    print(f"Отчет отправлен {name} <{email}>")
+                    
+                    # Пауза между отправкой писем
+                    time.sleep(1)
+                    
+                except Exception as e:
+                    print(f"Ошибка отправки отчета для {email}: {str(e)}")
+                    
+    except Exception as e:
+        print(f"Ошибка подключения к SMTP серверу: {str(e)}")
 
 def job():
     print("Запуск задачи...")
     check_deadlines()
     check_responses()
+    send_monthly_report()
 
 # if __name__ == "__main__":
 #     print("Скрипт запущен")
