@@ -6,4 +6,5 @@ EMAIL = "zaharov.egor.2003@yandex.ru"
 PASSWORD = "tqyxemaddulynkfc" 
 
 #excel
-EXCEL_FILE = "tasks.xlsx"
+EXCEL_FILE = "database/tasks.xlsx"
+DATE_LOG = "database/date_log.xlsx"

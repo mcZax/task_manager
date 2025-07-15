@@ -4,7 +4,7 @@ import email
 from email.header import decode_header
 from email.header import decode_header
 import re
-from config import IMAP_SERVER, EMAIL, PASSWORD
+from config import IMAP_SERVER, EMAIL, PASSWORD, EXCEL_FILE
 from datetime import datetime
 from database.excel_handler import load_tasks
 from mail.sender import send_email
@@ -95,20 +95,24 @@ def check_responses():
 
                 # Нормализуем текст для анализа
                 clean_body = re.sub(r'\s+', ' ', body).strip().lower()
-                print(f"Текст письма: {clean_body[:200]}...")
+                # print(f"Текст письма: {clean_body}...")
 
+                print(clean_body)
+
+                task = re.search(r'«(.+?)»', clean_body).group(1)
+                print(task)
                 # Точный поиск статуса
                 status = None
-                if re.search('123', clean_body):
+                if re.search('123', clean_body[:30]):
                     status = "Выполнено"
-                elif re.search('321', clean_body):
+                elif re.search('321', clean_body[:30]):
                     status = "Не выполнено"
                 else:
                     print("Не найдено цифр 123 или 321 в теле письма")
                     continue
 
                 print(f"Определен статус: {status}")
-                update_status(from_email, status)
+                update_status(task, status)
                 mail.store(num, "+FLAGS", "\\Seen")
                 print("Письмо обработано")
 
@@ -122,17 +126,17 @@ def check_responses():
         print(f"Ошибка IMAP: {str(e)}")
 
 
-def update_status(email, status):
+def update_status(task, status):
     try:
-        df = pd.read_excel("tasks.xlsx")
+        df = pd.read_excel(EXCEL_FILE)
         # Ищем точное совпадение email (без учета регистра)
-        mask = df["Email"].str.lower() == email.lower()
+        mask = df["Задача"].str.lower() == task
         if not any(mask):
-            print(f" Email {email} не найден в tasks.xlsx")
+            print(f" Задача {task} не найдена в tasks.xlsx")
             return
             
         df.loc[mask, "Статус"] = status
-        df.to_excel("tasks.xlsx", index=False)
-        print(f" Обновлен статус для {email}: {status}")
+        df.to_excel(EXCEL_FILE, index=False)
+        print(f" Обновлен статус для {task}: {status}")
     except Exception as e:
         print(f" Ошибка при обновлении статуса: {e}")

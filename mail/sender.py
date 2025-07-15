@@ -4,9 +4,27 @@ import time
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from config import SMTP_SERVER, SMTP_PORT, EMAIL, PASSWORD
-from database.excel_handler import load_tasks
+from config import SMTP_SERVER, SMTP_PORT, EMAIL, PASSWORD, EXCEL_FILE, DATE_LOG
+from database.excel_handler import load_tasks, init_log
 import re
+
+
+def log_sent_task(task_info):
+    try:
+        log_df = pd.read_excel(DATE_LOG)
+    except FileNotFoundError:
+        init_log()
+        log_df = pd.read_excel(DATE_LOG)
+    
+    new_entry = {
+        "Задача": task_info["Задача"],
+        "Дата и время напоминания": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "Дата получения ответа": None,
+    }
+    
+    log_df = pd.concat([log_df, pd.DataFrame([new_entry])], ignore_index=True)
+    log_df.to_excel(DATE_LOG, index=False)
+
 
 def send_email(to_email, task, assignee, deadline):
     try:

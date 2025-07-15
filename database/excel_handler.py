@@ -1,7 +1,13 @@
 import pandas as pd
-from config import EXCEL_FILE
+from config import EXCEL_FILE, DATE_LOG
 
 
+def init_log():
+    log_columns = ["Задача", "Дата отправки", "Дата обновления статуса"]
+    log_df = pd.DataFrame(columns=log_columns)
+    log_df.to_excel(DATE_LOG, index=False)
+
+ 
 def load_tasks():
     try:
         return pd.read_excel(EXCEL_FILE)

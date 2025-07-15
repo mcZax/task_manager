@@ -5,7 +5,7 @@ def job():
     print("Запуск задачи...")
     check_deadlines()
     check_responses()
-    send_monthly_report()
+    # send_monthly_report()
 
 # if __name__ == "__main__":
 #     print("Скрипт запущен")
