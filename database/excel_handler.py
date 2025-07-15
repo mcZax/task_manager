@@ -3,11 +3,17 @@ from config import EXCEL_FILE, DATE_LOG
 
 
 def init_log():
-    log_columns = ["Задача", "Дата отправки", "Дата обновления статуса"]
-    log_df = pd.DataFrame(columns=log_columns)
-    log_df.to_excel(DATE_LOG, index=False)
+    try:
+        log_df = pd.read_excel(DATE_LOG)
+    except FileNotFoundError:
+        log_df = pd.DataFrame(columns=[
+            "Задача", 
+            "Дата и время напоминания", 
+            "Дата получения ответа"
+        ])
+    return log_df
 
- 
+
 def load_tasks():
     try:
         return pd.read_excel(EXCEL_FILE)

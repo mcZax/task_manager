@@ -4,26 +4,37 @@ import time
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from config import SMTP_SERVER, SMTP_PORT, EMAIL, PASSWORD, EXCEL_FILE, DATE_LOG
+from config import SMTP_SERVER, SMTP_PORT, EMAIL, PASSWORD, DATE_LOG
 from database.excel_handler import load_tasks, init_log
 import re
 
 
-def log_sent_task(task_info):
+def log_sent_task(task):
     try:
-        log_df = pd.read_excel(DATE_LOG)
-    except FileNotFoundError:
-        init_log()
-        log_df = pd.read_excel(DATE_LOG)
-    
-    new_entry = {
-        "Задача": task_info["Задача"],
-        "Дата и время напоминания": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "Дата получения ответа": None,
-    }
-    
-    log_df = pd.concat([log_df, pd.DataFrame([new_entry])], ignore_index=True)
-    log_df.to_excel(DATE_LOG, index=False)
+        log_df = init_log()
+        
+        # Проверяем, существует ли уже такая задача
+        task_exists = log_df["Задача"].eq(task).any()
+        
+        if task_exists:
+            # Обновляем время для существующей задачи
+            log_df.loc[log_df["Задача"] == task, 
+                      "Дата и время напоминания"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        else:
+            # Добавляем новую запись
+            new_entry = {
+                "Задача": task,
+                "Дата и время напоминания": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "Дата получения ответа": None,
+            }
+            log_df = pd.concat([log_df, pd.DataFrame([new_entry])], ignore_index=True)
+        
+        # Сохраняем изменения
+        log_df.to_excel(DATE_LOG, index=False)
+        
+    except Exception as e:
+        print(f"Ошибка при логировании задачи: {e}")
+        raise
 
 
 def send_email(to_email, task, assignee, deadline):
@@ -48,6 +59,10 @@ def send_email(to_email, task, assignee, deadline):
             server.login(EMAIL, PASSWORD)
             server.send_message(msg)
         print(f"Письмо отправлено на {to_email}")
+
+        log_sent_task(task)
+        print('Дата и время отправки записано в лог')
+
     except Exception as e:
         print(f"Ошибка при отправке письма: {e}")
 

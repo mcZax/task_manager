@@ -4,9 +4,9 @@ import email
 from email.header import decode_header
 from email.header import decode_header
 import re
-from config import IMAP_SERVER, EMAIL, PASSWORD, EXCEL_FILE
+from config import IMAP_SERVER, EMAIL, PASSWORD, EXCEL_FILE, DATE_LOG
 from datetime import datetime
-from database.excel_handler import load_tasks
+from database.excel_handler import load_tasks, init_log
 from mail.sender import send_email
 
 
@@ -37,8 +37,37 @@ def check_deadlines():
                     assignee=row['Исполнитель'],
                     deadline=row['Дедлайн']
                 )
+
     except Exception as e:
         print(f"Ошибка в check_deadlines: {e}")
+
+
+def log_received_task(task):
+    try:
+        log_df = init_log()
+        
+        # Проверяем, существует ли уже такая задача
+        task_exists = log_df["Задача"].eq(task).any()
+        
+        if task_exists:
+            # Обновляем время для существующей задачи
+            log_df.loc[log_df["Задача"] == task, 
+                      "Дата получения ответа"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        else:
+            # Добавляем новую запись
+            new_entry = {
+                "Задача": task,
+                "Дата и время напоминания": None,
+                "Дата получения ответа": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            }
+            log_df = pd.concat([log_df, pd.DataFrame([new_entry])], ignore_index=True)
+        
+        # Сохраняем изменения
+        log_df.to_excel(DATE_LOG, index=False)
+        
+    except Exception as e:
+        print(f"Ошибка при логировании задачи: {e}")
+        raise
 
 
 def check_responses():
@@ -113,6 +142,9 @@ def check_responses():
 
                 print(f"Определен статус: {status}")
                 update_status(task, status)
+
+                log_received_task(task)
+                print("Дата и время получения записано в лог")
                 mail.store(num, "+FLAGS", "\\Seen")
                 print("Письмо обработано")
 
@@ -129,7 +161,7 @@ def check_responses():
 def update_status(task, status):
     try:
         df = pd.read_excel(EXCEL_FILE)
-        # Ищем точное совпадение email (без учета регистра)
+        # Ищем точное совпадение задачи
         mask = df["Задача"].str.lower() == task
         if not any(mask):
             print(f" Задача {task} не найдена в tasks.xlsx")
