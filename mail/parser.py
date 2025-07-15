@@ -6,7 +6,7 @@ from email.header import decode_header
 import re
 from config import IMAP_SERVER, EMAIL, PASSWORD, EXCEL_FILE, DATE_LOG
 from datetime import datetime
-from database.excel_handler import load_tasks, init_log
+from database.excel_handler import load_tasks, init_log, column_width
 from mail.sender import send_email
 
 
@@ -42,7 +42,7 @@ def check_deadlines():
         print(f"Ошибка в check_deadlines: {e}")
 
 
-def log_received_task(task):
+def log_received_task(task, from_email):
     try:
         log_df = init_log()
         
@@ -51,14 +51,15 @@ def log_received_task(task):
         
         if task_exists:
             # Обновляем время для существующей задачи
-            log_df.loc[log_df["Задача"] == task, 
-                      "Дата получения ответа"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            log_df.loc[log_df["Задача"] == task, "Дата получения ответа"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            log_df.loc[log_df["Задача"] == task, "Email"] = from_email
         else:
             # Добавляем новую запись
             new_entry = {
                 "Задача": task,
                 "Дата и время напоминания": None,
                 "Дата получения ответа": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "Email": from_email
             }
             log_df = pd.concat([log_df, pd.DataFrame([new_entry])], ignore_index=True)
         
@@ -143,7 +144,7 @@ def check_responses():
                 print(f"Определен статус: {status}")
                 update_status(task, status)
 
-                log_received_task(task)
+                log_received_task(task, from_email)
                 print("Дата и время получения записано в лог")
                 mail.store(num, "+FLAGS", "\\Seen")
                 print("Письмо обработано")

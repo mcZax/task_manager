@@ -26,6 +26,7 @@ def log_sent_task(task):
                 "Задача": task,
                 "Дата и время напоминания": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "Дата получения ответа": None,
+                "Email": None
             }
             log_df = pd.concat([log_df, pd.DataFrame([new_entry])], ignore_index=True)
         
